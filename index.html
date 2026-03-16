@@ -278,7 +278,7 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:998;o
 </div>
 
 <!-- POINTS -->
-<div id="s-points" class="screen">
+<div id="s-points" class="screen" style="overflow-y:auto;justify-content:flex-start;padding-top:2.5rem;padding-bottom:2.5rem;">
   <div class="cfwrap" id="cfw"></div>
   <div class="pin">
     <p class="pel">You just earned</p>
@@ -304,6 +304,18 @@ body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:998;o
         <p id="prwd">Only <strong id="ptn">?</strong> pts away. You've got this.</p>
       </div>
     </div>
+
+    <!-- BARISTA CARD -->
+    <div id="baristaCard" style="display:none;width:100%;margin-top:1.3rem;padding:1rem 1.1rem;background:rgba(61,35,20,.06);border:1.5px dashed var(--latte);border-radius:10px;text-align:center;">
+      <p style="font-size:.65rem;letter-spacing:.18em;text-transform:uppercase;color:var(--latte);margin-bottom:.5rem;">🎉 Reward unlocked</p>
+      <p style="font-family:'Playfair Display',serif;font-size:1.05rem;font-weight:700;color:var(--espresso);margin-bottom:.5rem;" id="baristaRewardName">Free Latte</p>
+      <p style="font-size:.78rem;color:var(--coffee);line-height:1.8;opacity:.85;">Please show this screen to a Farro team member.<br>They will verify your points and apply your reward.<br><span style="opacity:.6;font-size:.72rem;">Points are only confirmed when shown in person.</span></p>
+      <div style="margin-top:.8rem;padding:.6rem 1rem;background:var(--espresso);border-radius:6px;display:inline-block;">
+        <span style="font-family:'Playfair Display',serif;font-size:.82rem;color:var(--cream);letter-spacing:.1em;" id="baristaUser">—</span>
+        <span style="font-size:.72rem;color:var(--latte);margin-left:.6rem;" id="baristapts">0 pts</span>
+      </div>
+    </div>
+
     <button class="pcta" onclick="goSurvey()">Continue →</button>
   </div>
 </div>
@@ -356,7 +368,7 @@ function lu(){try{return JSON.parse(localStorage.getItem(SK))||{};}catch(e){retu
 function su(u){localStorage.setItem(SK,JSON.stringify(u));}
 
 /* STATE */
-var CU=null,selS=600,TS=600,tEnd=null,tick=null,selStar=0,wl=null,sent=false,lastSub=0,lastMsg='',CIRC=628.3,RATE=30000,earned=0;
+var CU=null,selS=600,TS=600,tEnd=null,tick=null,selStar=0,wl=null,sent=false,lastSub=0,lastMsg='',CIRC=628.3,RATE=30000,earned=0,timerFinished=false;
 var MSGS=[{r:1.0,t:"Take a deep breath.<br>You've got nowhere to be."},{r:0.7,t:"Let the warmth<br>of the cup sink in."},{r:0.35,t:"Right here.<br>Right now."},{r:0.1,t:"Almost there."}];
 
 /* SCREEN */
@@ -484,6 +496,7 @@ document.getElementById('btnStart').addEventListener('click',function(){
 
 function launch(){
   TS=selS;tEnd=Date.now()+TS*1000;lastMsg='';
+  timerFinished=false; // ← reset guard
   show('s-timer');mkDots();acqWL();
   document.getElementById('td').textContent=fmt(TS);
   document.getElementById('tmsg').innerHTML=MSGS[0].t;
@@ -492,7 +505,13 @@ function launch(){
   clearInterval(tick);
   tick=setInterval(function(){
     var r=Math.round((tEnd-Date.now())/1000);
-    if(r<=0){clearInterval(tick);relWL();document.getElementById('td').textContent='0:00';setRing(0);setTimeout(timerEnd,600);return;}
+    if(r<=0){
+      if(timerFinished)return; // ← prevent double-fire
+      timerFinished=true;
+      clearInterval(tick);relWL();
+      document.getElementById('td').textContent='0:00';setRing(0);
+      setTimeout(timerEnd,600);return;
+    }
     document.getElementById('td').textContent=fmt(r);setRing(r);setMsg(r);
   },500);
   document.removeEventListener('visibilitychange',onVis);
@@ -503,11 +522,18 @@ function onVis(){
   if(document.visibilityState!=='visible'||!tEnd)return;
   if(!wl)acqWL();
   var r=Math.round((tEnd-Date.now())/1000);
-  if(r<=0){clearInterval(tick);relWL();document.getElementById('td').textContent='0:00';setRing(0);setTimeout(timerEnd,300);return;}
+  if(r<=0){
+    if(timerFinished)return; // ← prevent double-fire on return from background
+    timerFinished=true;
+    clearInterval(tick);relWL();
+    document.getElementById('td').textContent='0:00';setRing(0);
+    setTimeout(timerEnd,300);return;
+  }
   document.getElementById('td').textContent=fmt(r);setRing(r);setMsg(r);
 }
 
 function timerEnd(){
+  tEnd=null; // ← clear so onVis can never re-trigger
   var mins=Math.round(selS/60);
   playFill('end',mins,function(){showPts();});
 }
@@ -554,7 +580,23 @@ function showPts(){
   document.getElementById('prgl').textContent=nxt.pts+' pts = '+nxt.label+' '+nxt.icon;
   document.getElementById('prwi').textContent=nxt.icon;
   document.getElementById('prwt').textContent=nxt.label+' '+nxt.icon;
-  document.getElementById('prwd').innerHTML=toNxt===0?'You\'ve reached this reward! 🎉 Tell the barista.':'Only <strong id="ptn">'+toNxt+'</strong> pts away. You\'ve got this.';
+  document.getElementById('prwd').innerHTML=toNxt===0?'You\'ve reached this reward! 🎉 Show screen to barista.':'Only <strong id="ptn">'+toNxt+'</strong> pts away. You\'ve got this.';
+
+  /* Barista card — show only when a reward threshold is crossed */
+  var card=document.getElementById('baristaCard');
+  var crossed=null;
+  for(var k=0;k<RWD.length;k++){
+    var prev=RWD[k].pts-earned;
+    if(prev<RWD[k].pts && tot>=RWD[k].pts && tot-earned<RWD[k].pts){crossed=RWD[k];break;}
+  }
+  if(crossed){
+    document.getElementById('baristaRewardName').textContent=crossed.icon+' '+crossed.label;
+    document.getElementById('baristaUser').textContent=CU?CU.username:'Guest';
+    document.getElementById('baristapts').textContent=tot+' pts';
+    card.style.display='block';
+  } else {
+    card.style.display='none';
+  }
 
   /* milestones */
   var msw=document.getElementById('pms');msw.innerHTML='';
